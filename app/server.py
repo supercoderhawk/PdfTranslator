@@ -1,3 +1,4 @@
+import gc
 import streamlit as st
 import yaml,os
 from translator.progress import Progress
@@ -5,14 +6,31 @@ from translator.doc_parser import DocParser
 from utils import ArgumentParser, ConfigLoader, LOG
 from model import GLMModel, OpenAIModel
 
-from streamlit.report_thread import get_report_ctx
-from streamlit.hashing import _CodeHasher
-from streamlit.server.server import Server
+from streamlit.runtime import Runtime
+from streamlit.runtime.scriptrunner import get_script_run_ctx as get_report_ctx
+
+
 
 class SessionState(object):
     def __init__(self, **kwargs):
         for key, val in kwargs.items():
             setattr(self, key, val)
+
+def st_runtime():
+
+    global _st_runtime
+
+    if _st_runtime:
+        return _st_runtime
+
+    for obj in gc.get_objects():
+        if type(obj) is Runtime:
+            _st_runtime = obj
+            return _st_runtime
+
+_st_runtime = None
+
+runtime = st_runtime()
 
 def get_session_state(**kwargs):
     """Gets the current session state, creating it if necessary.
@@ -23,7 +41,8 @@ def get_session_state(**kwargs):
     """
     ctx = get_report_ctx()
     session_id = ctx.session_id
-    session_info = Server.get_current()._get_session_info(session_id)
+    
+    session_info = runtime._session_mgr.get_session_info(session_id)
 
     if session_info is None:
         raise RuntimeError("Couldn't get your Streamlit Session object.")
@@ -34,6 +53,7 @@ def get_session_state(**kwargs):
         this_session._custom_session_state = SessionState(**kwargs)
 
     return this_session._custom_session_state
+
 # 在streamlit应用的侧边栏中创建输入字段
 
 # config_file_name = st.sidebar.text_input('Config', 'GUI-config.yaml')
@@ -86,12 +106,16 @@ def make_sidebar():
         openai_api_key = st.sidebar.text_input('OpenAI API Key', openai_api_key)
         api_base = data[model_type].get('api_base', '')
         api_base = st.sidebar.text_input('OpenAI API base url', api_base)
-
+        
+        LOG.info(f'openai header: {data[model_type].get("headers", {})}')
+        
         data[model_type] = {
             'model': openai_model,
             'api_key': openai_api_key,
             'api_base': api_base,
+            'headers': data[model_type].get('headers', {})
         }
+        
     data['model_type_name'] = model_type
 
     processPageNum = data.get('processPageNum', 0)
@@ -109,7 +133,8 @@ def getModel(config):
         model_name = config['OpenAIModel']['model']
         api_key = config['OpenAIModel']['api_key']
         api_base = config['OpenAIModel']['api_base']
-        model = OpenAIModel(model=model_name, api_key=api_key, api_base = api_base)  
+        model = OpenAIModel(model=model_name, api_key=api_key, api_base = api_base, 
+                            headers=config['OpenAIModel'].get('headers',{}))  
     else:
         model_url =  config['GLMModel']['model_url']
         # timeout = args.timeout if args.timeout else config['GLMModel']['timeout']

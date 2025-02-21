@@ -1,1 +1,8 @@
-streamlit simplejson openai argparse loguru pdf2docx docx
+streamlit
+simplejson
+openai
+argparse
+loguru
+pdf2docx
+docx
+pyyaml
